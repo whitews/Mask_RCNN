@@ -33,6 +33,8 @@ class Config(object):
     # number that your GPU can handle for best performance.
     IMAGES_PER_GPU = 2
 
+    EPOCH_COUNT = 100
+
     # Number of training steps per epoch
     # This doesn't need to match the size of the training set. Tensorboard
     # updates are saved at the end of each epoch, so setting this to a
@@ -217,11 +219,13 @@ class Config(object):
 
         # Input image size
         if self.IMAGE_RESIZE_MODE == "crop":
-            self.IMAGE_SHAPE = np.array([self.IMAGE_MIN_DIM, self.IMAGE_MIN_DIM,
-                self.IMAGE_CHANNEL_COUNT])
+            self.IMAGE_SHAPE = np.array(
+                [self.IMAGE_MIN_DIM, self.IMAGE_MIN_DIM, self.IMAGE_CHANNEL_COUNT]
+            )
         else:
-            self.IMAGE_SHAPE = np.array([self.IMAGE_MAX_DIM, self.IMAGE_MAX_DIM,
-                self.IMAGE_CHANNEL_COUNT])
+            self.IMAGE_SHAPE = np.array(
+                [self.IMAGE_MAX_DIM, self.IMAGE_MAX_DIM, self.IMAGE_CHANNEL_COUNT]
+            )
 
         # Image meta data length
         # See compose_image_meta() for details
@@ -237,7 +241,4 @@ class Config(object):
         print("\nConfigurations:")
         for key, val in self.to_dict().items():
             print(f"{key:30} {val}")
-        # for a in dir(self):
-        #     if not a.startswith("__") and not callable(getattr(self, a)):
-        #         print("{:30} {}".format(a, getattr(self, a)))
         print("\n")
