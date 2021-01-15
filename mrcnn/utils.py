@@ -23,6 +23,24 @@ import warnings
 COCO_MODEL_URL = "https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5"
 
 
+def compute_backbone_shapes(config, image_shape):
+    """
+    Computes the width and height of each stage of the backbone network.
+
+    Returns:
+        [N, (height, width)]. Where N is the number of stages
+    """
+    if callable(config.BACKBONE):
+        return config.COMPUTE_BACKBONE_SHAPE(image_shape)
+
+    # Currently supports ResNet only
+    assert config.BACKBONE in ["resnet50", "resnet101"]
+    return np.array(
+        [[int(math.ceil(image_shape[0] / stride)),
+            int(math.ceil(image_shape[1] / stride))]
+            for stride in config.BACKBONE_STRIDES])
+
+
 ############################################################
 #  Bounding Boxes
 ############################################################
