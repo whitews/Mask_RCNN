@@ -905,17 +905,17 @@ class MaskRCNN(object):
             # In multi-GPU training, we wrap the model. Get layers
             # of the inner model because they have the weights.
             keras_model = self.keras_model
-            layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
+            model_layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
                 else keras_model.layers
 
             # Exclude some layers
             if exclude:
-                layers = filter(lambda l: l.name not in exclude, layers)
+                model_layers = filter(lambda l: l.name not in exclude, model_layers)
 
             if by_name:
-                hdf5_format.load_weights_from_hdf5_group_by_name(f, layers)
+                hdf5_format.load_weights_from_hdf5_group_by_name(f, model_layers)
             else:
-                hdf5_format.load_weights_from_hdf5_group(f, layers)
+                hdf5_format.load_weights_from_hdf5_group(f, model_layers)
 
         # Update the log directory
         self.set_log_dir(filepath)
@@ -995,10 +995,10 @@ class MaskRCNN(object):
 
         # In multi-GPU training, we wrap the model. Get layers
         # of the inner model because they have the weights.
-        layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
+        model_layers = keras_model.inner_model.layers if hasattr(keras_model, "inner_model")\
             else keras_model.layers
 
-        for layer in layers:
+        for layer in model_layers:
             # Is the layer a model?
             if layer.__class__.__name__ == 'Model':
                 print("In model: ", layer.name)
@@ -1060,8 +1060,16 @@ class MaskRCNN(object):
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
 
-    def train(self, train_dataset, val_dataset, learning_rate, epochs, layers,
-              augmentation=None, custom_callbacks=None):
+    def train(
+            self,
+            train_dataset,
+            val_dataset,
+            learning_rate,
+            epochs,
+            train_layers,
+            augmentation=None,
+            custom_callbacks=None
+    ):
         """
         Train the model.
         train_dataset, val_dataset: Training and validation DataSet objects.
@@ -1105,8 +1113,8 @@ class MaskRCNN(object):
             # All layers
             "all": ".*",
         }
-        if layers in layer_regex.keys():
-            layers = layer_regex[layers]
+        if train_layers in layer_regex.keys():
+            train_layers = layer_regex[train_layers]
 
         # Data generators
         train_generator = data_gen.DataGenerator(
@@ -1136,7 +1144,7 @@ class MaskRCNN(object):
         # Train
         log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
         log("Checkpoint Path: {}".format(self.checkpoint_path))
-        self.set_trainable(layers)
+        self.set_trainable(train_layers)
         self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
 
         # Work-around for Windows: Keras fails on Windows when using
@@ -1281,8 +1289,7 @@ class MaskRCNN(object):
         masks: [H, W, N] instance binary masks
         """
         assert self.mode == "inference", "Create model in inference mode."
-        assert len(
-            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+        assert len(images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
 
         if verbose:
             log("Processing {} images".format(len(images)))
@@ -1453,15 +1460,15 @@ class MaskRCNN(object):
         """
         Returns a list of layers that have weights.
         """
-        layers = []
+        train_layers = []
         # Loop through all layers
         for layer in self.keras_model.layers:
             # If layer is a wrapper, find inner trainable layer
             layer = self.find_trainable_layer(layer)
             # Include layer if it has weights
             if layer.get_weights():
-                layers.append(layer)
-        return layers
+                train_layers.append(layer)
+        return train_layers
 
     def run_graph(self, images, outputs, image_metas=None):
         """
