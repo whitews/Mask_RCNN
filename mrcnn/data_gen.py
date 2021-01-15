@@ -487,7 +487,7 @@ class DataGenerator(keras_utils.Sequence):
 
         # Anchors
         # [anchor_count, (y1, x1, y2, x2)]
-        self.backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
+        self.backbone_shapes = utils.compute_backbone_shapes(config, config.IMAGE_SHAPE)
         self.anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
                                                       config.RPN_ANCHOR_RATIOS,
                                                       self.backbone_shapes,

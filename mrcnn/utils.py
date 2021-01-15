@@ -8,6 +8,7 @@ Written by Waleed Abdulla
 """
 
 import random
+import math
 import numpy as np
 import tensorflow as tf
 from scipy import ndimage

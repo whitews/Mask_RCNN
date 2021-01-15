@@ -10,7 +10,6 @@ Written by Waleed Abdulla
 import os
 import datetime
 import re
-import math
 from collections import OrderedDict
 import multiprocessing
 import numpy as np
@@ -50,24 +49,6 @@ def log(text, array=None):
             text += ("min: {:10}  max: {:10}".format("", ""))
         text += "  {}".format(array.dtype)
     print(text)
-
-
-def compute_backbone_shapes(config, image_shape):
-    """
-    Computes the width and height of each stage of the backbone network.
-
-    Returns:
-        [N, (height, width)]. Where N is the number of stages
-    """
-    if callable(config.BACKBONE):
-        return config.COMPUTE_BACKBONE_SHAPE(image_shape)
-
-    # Currently supports ResNet only
-    assert config.BACKBONE in ["resnet50", "resnet101"]
-    return np.array(
-        [[int(math.ceil(image_shape[0] / stride)),
-            int(math.ceil(image_shape[1] / stride))]
-            for stride in config.BACKBONE_STRIDES])
 
 
 ############################################################
@@ -1399,7 +1380,7 @@ class MaskRCNN(object):
         """
         Returns anchor pyramid for the given image size.
         """
-        backbone_shapes = compute_backbone_shapes(self.config, image_shape)
+        backbone_shapes = utils.compute_backbone_shapes(self.config, image_shape)
         # Cache anchors and reuse if image shape is the same
         if not hasattr(self, "_anchor_cache"):
             self._anchor_cache = {}
