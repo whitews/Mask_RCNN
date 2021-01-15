@@ -919,14 +919,14 @@ class MaskRCNN(object):
                                 md5_hash='a268eb855778b3df3c7506639542a6af')
         return weights_path
 
-    def compile(self, learning_rate, momentum):
+    def compile(self):
         """
         Gets the model ready for training. Adds losses, regularization, and
         metrics. Then calls the Keras compile() function.
         """
         # Optimizer object
         optimizer = keras.optimizers.SGD(
-            lr=learning_rate, momentum=momentum,
+            lr=self.config.LEARNING_RATE, momentum=self.config.LEARNING_MOMENTUM,
             clipnorm=self.config.GRADIENT_CLIP_NORM)
         # Add Losses
         loss_names = [
@@ -1047,7 +1047,6 @@ class MaskRCNN(object):
             self,
             train_dataset,
             val_dataset,
-            learning_rate,
             epochs,
             train_layers,
             augmentation=None,
@@ -1056,7 +1055,6 @@ class MaskRCNN(object):
         """
         Train the model.
         train_dataset, val_dataset: Training and validation DataSet objects.
-        learning_rate: The learning rate to train with
         epochs: Number of training epochs. Note that previous training epochs
                 are considered to be done already, so this actually determines
                 the epochs to train in total rather than in this particular
@@ -1125,10 +1123,10 @@ class MaskRCNN(object):
             callbacks += custom_callbacks
 
         # Train
-        log("\nStarting at epoch {}. LR={}\n".format(self.epoch, learning_rate))
+        log("\nStarting at epoch {}. LR={}\n".format(self.epoch, self.config.LEARNING_RATE))
         log("Checkpoint Path: {}".format(self.checkpoint_path))
         self.set_trainable(train_layers)
-        self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
+        self.compile()
 
         # Work-around for Windows: Keras fails on Windows when using
         # multiprocessing workers. See discussion here:
