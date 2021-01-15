@@ -32,7 +32,10 @@ import sys
 import json
 import datetime
 import numpy as np
-import skimage.draw
+from skimage import color, draw, io
+
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
 
 # Root directory of the project
 ROOT_DIR = os.path.abspath("../../")
@@ -40,7 +43,9 @@ ROOT_DIR = os.path.abspath("../../")
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)  # To find local version of the library
 from mrcnn.config import Config
-from mrcnn import model as modellib, utils
+from mrcnn.data_set import DataSet
+from mrcnn.model import MaskRCNN
+from mrcnn import utils
 
 # Path to trained weights file
 COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
@@ -63,13 +68,16 @@ class BalloonConfig(Config):
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # Background + balloon
 
+    # Number of epochs to run
+    EPOCH_COUNT = 10
+
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
+    STEPS_PER_EPOCH = 20
 
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
@@ -79,7 +87,7 @@ class BalloonConfig(Config):
 #  Dataset
 ############################################################
 
-class BalloonDataset(utils.Dataset):
+class BalloonDataset(DataSet):
 
     def load_balloon(self, dataset_dir, subset):
         """Load a subset of the Balloon dataset.
@@ -131,7 +139,7 @@ class BalloonDataset(utils.Dataset):
             # Unfortunately, VIA doesn't include it in JSON, so we must read
             # the image. This is only managable since the dataset is tiny.
             image_path = os.path.join(dataset_dir, a['filename'])
-            image = skimage.io.imread(image_path)
+            image = io.imread(image_path)
             height, width = image.shape[:2]
 
             self.add_image(
@@ -160,9 +168,12 @@ class BalloonDataset(utils.Dataset):
                         dtype=np.uint8)
         for i, p in enumerate(info["polygons"]):
             # Get indexes of pixels inside the polygon and set them to 1
-            rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
-            mask[rr, cc, i] = 1
-
+            try:
+                rr, cc = draw.polygon(p['all_points_y'], p['all_points_x'])
+                mask[rr, cc, i] = 1
+            except IndexError as ex:
+                print(info)
+                raise ex
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
         return mask.astype(np.bool), np.ones([mask.shape[-1]], dtype=np.int32)
@@ -176,7 +187,7 @@ class BalloonDataset(utils.Dataset):
             super(self.__class__, self).image_reference(image_id)
 
 
-def train(model):
+def train(mrcnn_model):
     """Train the model."""
     # Training dataset.
     dataset_train = BalloonDataset()
@@ -193,10 +204,11 @@ def train(model):
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
     print("Training network heads")
-    model.train(dataset_train, dataset_val,
-                learning_rate=config.LEARNING_RATE,
-                epochs=30,
-                layers='heads')
+    mrcnn_model.train(
+        dataset_train,
+        dataset_val,
+        train_layers='heads'
+    )
 
 
 def color_splash(image, mask):
@@ -208,7 +220,7 @@ def color_splash(image, mask):
     """
     # Make a grayscale copy of the image. The grayscale copy still
     # has 3 RGB channels, though.
-    gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 255
+    gray = color.gray2rgb(color.rgb2gray(image)) * (255 - 26)
     # Copy color pixels from the original color image where mask is set
     if mask.shape[-1] > 0:
         # We're treating all instances as one, so collapse the mask into one layer
@@ -219,7 +231,7 @@ def color_splash(image, mask):
     return splash
 
 
-def detect_and_color_splash(model, image_path=None, video_path=None):
+def detect_and_color_splash(mrcnn_model, image_path=None, video_path=None):
     assert image_path or video_path
 
     # Image or video?
@@ -227,14 +239,14 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         # Run model detection and generate the color splash effect
         print("Running on {}".format(args.image))
         # Read image
-        image = skimage.io.imread(args.image)
+        image = io.imread(args.image)
         # Detect objects
-        r = model.detect([image], verbose=1)[0]
+        r = mrcnn_model.detect([image], verbose=1)[0]
         # Color splash
         splash = color_splash(image, r['masks'])
         # Save output
         file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
-        skimage.io.imsave(file_name, splash)
+        io.imsave(file_name, splash)
     elif video_path:
         import cv2
         # Video capture
@@ -259,7 +271,7 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
                 # OpenCV returns images as BGR, convert to RGB
                 image = image[..., ::-1]
                 # Detect objects
-                r = model.detect([image], verbose=0)[0]
+                r = mrcnn_model.detect([image], verbose=0)[0]
                 # Color splash
                 splash = color_splash(image, r['masks'])
                 # RGB -> BGR to save image to video
@@ -327,11 +339,17 @@ if __name__ == '__main__':
 
     # Create model
     if args.command == "train":
-        model = modellib.MaskRCNN(mode="training", config=config,
-                                  model_dir=args.logs)
+        model = MaskRCNN(
+            mode="training",
+            config=config,
+            model_dir=args.logs
+        )
     else:
-        model = modellib.MaskRCNN(mode="inference", config=config,
-                                  model_dir=args.logs)
+        model = MaskRCNN(
+            mode="inference",
+            config=config,
+            model_dir=args.logs
+        )
 
     # Select weights file to load
     if args.weights.lower() == "coco":
