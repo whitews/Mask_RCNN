@@ -10,7 +10,7 @@ Written by Waleed Abdulla
 import random
 import numpy as np
 import tensorflow as tf
-import scipy
+from scipy import ndimage
 import skimage.color
 import skimage.io
 import skimage.transform
@@ -175,6 +175,7 @@ def apply_box_deltas(boxes, deltas):
     return np.stack([y1, x1, y2, x2], axis=1)
 
 
+# TODO: see if box_refinement_graph & box_refinement can be combined to reduce duplicated code
 def box_refinement_graph(box, gt_box):
     """Compute refinement needed to transform box to gt_box.
     box and gt_box are [N, (y1, x1, y2, x2)]
@@ -225,6 +226,77 @@ def box_refinement(box, gt_box):
     dw = np.log(gt_width / width)
 
     return np.stack([dy, dx, dh, dw], axis=1)
+
+
+############################################################
+#  Data Formatting
+############################################################
+
+def compose_image_meta(image_id, original_image_shape, image_shape,
+                       window, scale, active_class_ids):
+    """
+    Takes attributes of an image and puts them in one 1D array.
+
+    image_id: An int ID of the image. Useful for debugging.
+    original_image_shape: [H, W, C] before resizing or padding.
+    image_shape: [H, W, C] after resizing and padding
+    window: (y1, x1, y2, x2) in pixels. The area of the image where the real
+            image is (excluding the padding)
+    scale: The scaling factor applied to the original image (float32)
+    active_class_ids: List of class_ids available in the dataset from which
+        the image came. Useful if training on images from multiple datasets
+        where not all classes are present in all datasets.
+    """
+    meta = np.array(
+        [image_id] +                  # size=1
+        list(original_image_shape) +  # size=3
+        list(image_shape) +           # size=3
+        list(window) +                # size=4 (y1, x1, y2, x2) in image coordinates
+        [scale] +                     # size=1
+        list(active_class_ids)        # size=num_classes
+    )
+    return meta
+
+
+def parse_image_meta(meta):
+    """
+    Parses an array that contains image attributes to its components.
+    See compose_image_meta() for more details.
+
+    meta: [batch, meta length] where meta length depends on NUM_CLASSES
+
+    Returns a dict of the parsed values.
+    """
+    image_id = meta[:, 0]
+    original_image_shape = meta[:, 1:4]
+    image_shape = meta[:, 4:7]
+    window = meta[:, 7:11]  # (y1, x1, y2, x2) window of image in in pixels
+    scale = meta[:, 11]
+    active_class_ids = meta[:, 12:]
+    return {
+        "image_id": image_id.astype(np.int32),
+        "original_image_shape": original_image_shape.astype(np.int32),
+        "image_shape": image_shape.astype(np.int32),
+        "window": window.astype(np.int32),
+        "scale": scale.astype(np.float32),
+        "active_class_ids": active_class_ids.astype(np.int32),
+    }
+
+
+def mold_image(images, mean_pixel_values):
+    """
+    Expects an RGB image (or array of images) and subtracts
+    the mean pixel and converts it to float. Expects image
+    colors and mean pixel values in RGB order.
+    """
+    return images.astype(np.float32) - mean_pixel_values
+
+
+def unmold_image(normalized_images, mean_pixel_values):
+    """
+    Takes a image normalized with mold() and returns the original.
+    """
+    return (normalized_images + mean_pixel_values).astype(np.uint8)
 
 
 def resize_image(image, min_dim=None, max_dim=None, min_scale=None, mode="square"):
@@ -347,7 +419,7 @@ def resize_mask(mask, scale, padding, crop=None):
     # calculated with round() instead of int()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        mask = scipy.ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
+        mask = ndimage.zoom(mask, zoom=[scale, scale, 1], order=0)
     if crop is not None:
         y, x, h, w = crop
         mask = mask[y:y + h, x:x + w]
@@ -392,11 +464,6 @@ def expand_mask(bbox, mini_mask, image_shape):
         m = resize(m, (h, w))
         mask[y1:y2, x1:x2, i] = np.around(m).astype(np.bool)
     return mask
-
-
-# TODO: Build and use this function to reduce code duplication
-def mold_mask(mask, config):
-    pass
 
 
 def unmold_mask(mask, bbox, image_shape):
@@ -517,7 +584,6 @@ def compute_matches(gt_boxes, gt_class_ids, gt_masks,
     indices = np.argsort(pred_scores)[::-1]
     pred_boxes = pred_boxes[indices]
     pred_class_ids = pred_class_ids[indices]
-    pred_scores = pred_scores[indices]
     pred_masks = pred_masks[..., indices]
 
     # Compute IoU overlaps [pred_masks, gt_masks]
@@ -587,10 +653,11 @@ def compute_ap(gt_boxes, gt_class_ids, gt_masks,
 
     # Compute mean AP over recall range
     indices = np.where(recalls[:-1] != recalls[1:])[0] + 1
-    mAP = np.sum((recalls[indices] - recalls[indices - 1]) *
-                 precisions[indices])
+    mean_avg_prec = np.sum(
+        (recalls[indices] - recalls[indices - 1]) * precisions[indices]
+    )
 
-    return mAP, precisions, recalls, overlaps
+    return mean_avg_prec, precisions, recalls, overlaps
 
 
 def compute_ap_range(gt_box, gt_class_id, gt_mask,
@@ -601,20 +668,22 @@ def compute_ap_range(gt_box, gt_class_id, gt_mask,
     iou_thresholds = iou_thresholds or np.arange(0.5, 1.0, 0.05)
     
     # Compute AP over range of IoU thresholds
-    AP = []
+    avg_prec = []
     for iou_threshold in iou_thresholds:
-        ap, precisions, recalls, overlaps =\
-            compute_ap(gt_box, gt_class_id, gt_mask,
-                        pred_box, pred_class_id, pred_score, pred_mask,
-                        iou_threshold=iou_threshold)
+        tmp_avg_prec, precisions, recalls, overlaps =\
+            compute_ap(
+                gt_box, gt_class_id, gt_mask,
+                pred_box, pred_class_id, pred_score, pred_mask,
+                iou_threshold=iou_threshold
+            )
         if verbose:
-            print("AP @{:.2f}:\t {:.3f}".format(iou_threshold, ap))
-        AP.append(ap)
-    AP = np.array(AP).mean()
+            print("AP @{:.2f}:\t {:.3f}".format(iou_threshold, tmp_avg_prec))
+        avg_prec.append(tmp_avg_prec)
+    avg_prec = np.array(avg_prec).mean()
     if verbose:
         print("AP @{:.2f}-{:.2f}:\t {:.3f}".format(
-            iou_thresholds[0], iou_thresholds[-1], AP))
-    return AP
+            iou_thresholds[0], iou_thresholds[-1], avg_prec))
+    return avg_prec
 
 
 def compute_recall(pred_boxes, gt_boxes, iou):
@@ -744,4 +813,3 @@ def resize(image, output_shape, order=1, mode='constant', cval=0, clip=True,
         order=order, mode=mode, cval=cval, clip=clip,
         preserve_range=preserve_range, anti_aliasing=anti_aliasing,
         anti_aliasing_sigma=anti_aliasing_sigma)
-
