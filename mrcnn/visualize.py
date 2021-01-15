@@ -7,8 +7,6 @@ Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
 
-import os
-import sys
 import random
 import itertools
 import colorsys
@@ -20,12 +18,7 @@ from matplotlib import patches,  lines
 from matplotlib.patches import Polygon
 import IPython.display
 
-# Root directory of the project
-ROOT_DIR = os.path.abspath("../")
-
-# Import Mask RCNN
-sys.path.append(ROOT_DIR)  # To find local version of the library
-from mrcnn import utils
+from . import utils
 
 
 ############################################################
@@ -56,14 +49,14 @@ def display_images(images, titles=None, cols=4, cmap=None, norm=None,
     plt.show()
 
 
-def random_colors(N, bright=True):
+def random_colors(n, bright=True):
     """
     Generate random colors.
     To get visually distinct colors, generate them in HSV space then
     convert to RGB.
     """
     brightness = 1.0 if bright else 0.7
-    hsv = [(i / N, 1, brightness) for i in range(N)]
+    hsv = [(i / n, 1, brightness) for i in range(n)]
     colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
     random.shuffle(colors)
     return colors
@@ -98,8 +91,8 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     captions: (optional) A list of strings to use as captions for each object
     """
     # Number of instances
-    N = boxes.shape[0]
-    if not N:
+    n_instances = boxes.shape[0]
+    if not n_instances:
         print("\n*** No instances to display *** \n")
     else:
         assert boxes.shape[0] == masks.shape[-1] == class_ids.shape[0]
@@ -111,7 +104,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
         auto_show = True
 
     # Generate random colors
-    colors = colors or random_colors(N)
+    colors = colors or random_colors(n_instances)
 
     # Show area outside image boundaries.
     height, width = image.shape[:2]
@@ -121,7 +114,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     ax.set_title(title)
 
     masked_image = image.astype(np.uint32).copy()
-    for i in range(N):
+    for i in range(n_instances):
         color = colors[i]
 
         # Bounding box
@@ -130,9 +123,16 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             continue
         y1, x1, y2, x2 = boxes[i]
         if show_bbox:
-            p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
-                                alpha=0.7, linestyle="dashed",
-                                edgecolor=color, facecolor='none')
+            p = patches.Rectangle(
+                (x1, y1),
+                x2 - x1,
+                y2 - y1,
+                linewidth=2,
+                alpha=0.7,
+                linestyle="dashed",
+                edgecolor=color,
+                facecolor='none'
+            )
             ax.add_patch(p)
 
         # Label
@@ -157,10 +157,10 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
         padded_mask[1:-1, 1:-1] = mask
         contours = find_contours(padded_mask, 0.5)
-        for verts in contours:
+        for vertices in contours:
             # Subtract the padding and flip (y, x) to (x, y)
-            verts = np.fliplr(verts) - 1
-            p = Polygon(verts, facecolor="none", edgecolor=color)
+            vertices = np.fliplr(vertices) - 1
+            p = Polygon(vertices, facecolor="none", edgecolor=color)
             ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
     if auto_show:
@@ -179,22 +179,26 @@ def display_differences(image,
         gt_box, gt_class_id, gt_mask,
         pred_box, pred_class_id, pred_score, pred_mask,
         iou_threshold=iou_threshold, score_threshold=score_threshold)
+
     # Ground truth = green. Predictions = red
-    colors = [(0, 1, 0, .8)] * len(gt_match)\
-           + [(1, 0, 0, 1)] * len(pred_match)
+    colors = [(0, 1, 0, .8)] * len(gt_match) + [(1, 0, 0, 1)] * len(pred_match)
+
     # Concatenate GT and predictions
     class_ids = np.concatenate([gt_class_id, pred_class_id])
     scores = np.concatenate([np.zeros([len(gt_match)]), pred_score])
     boxes = np.concatenate([gt_box, pred_box])
     masks = np.concatenate([gt_mask, pred_mask], axis=-1)
+
     # Captions per instance show score/IoU
-    captions = ["" for m in gt_match] + ["{:.2f} / {:.2f}".format(
+    captions = ["" for _ in gt_match] + ["{:.2f} / {:.2f}".format(
         pred_score[i],
         (overlaps[i, int(pred_match[i])]
             if pred_match[i] > -1 else overlaps[i].max()))
             for i in range(len(pred_match))]
+
     # Set title if not provided
     title = title or "Ground Truth and Detections\n GT=green, pred=red, captions: score/IoU"
+
     # Display
     display_instances(
         image,
@@ -202,7 +206,8 @@ def display_differences(image,
         class_names, scores, ax=ax,
         show_bbox=show_box, show_mask=show_mask,
         colors=colors, captions=captions,
-        title=title)
+        title=title
+    )
 
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
@@ -213,34 +218,33 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
     masked_image = image.copy()
 
     # Pick random anchors in case there are too many.
-    ids = np.arange(rois.shape[0], dtype=np.int32)
-    ids = np.random.choice(
-        ids, limit, replace=False) if ids.shape[0] > limit else ids
+    roi_ids = np.arange(rois.shape[0], dtype=np.int32)
+    roi_ids = np.random.choice(roi_ids, limit, replace=False) if roi_ids.shape[0] > limit else roi_ids
 
     fig, ax = plt.subplots(1, figsize=(12, 12))
     if rois.shape[0] > limit:
         plt.title("Showing {} random ROIs out of {}".format(
-            len(ids), rois.shape[0]))
+            len(roi_ids), rois.shape[0]))
     else:
-        plt.title("{} ROIs".format(len(ids)))
+        plt.title("{} ROIs".format(len(roi_ids)))
 
     # Show area outside image boundaries.
     ax.set_ylim(image.shape[0] + 20, -20)
     ax.set_xlim(-50, image.shape[1] + 20)
     ax.axis('off')
 
-    for i, id in enumerate(ids):
+    for i, roi_id in enumerate(roi_ids):
         color = np.random.rand(3)
-        class_id = class_ids[id]
+        class_id = class_ids[roi_id]
         # ROI
-        y1, x1, y2, x2 = rois[id]
+        y1, x1, y2, x2 = rois[roi_id]
         p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
                               edgecolor=color if class_id else "gray",
                               facecolor='none', linestyle="dashed")
         ax.add_patch(p)
         # Refined ROI
         if class_id:
-            ry1, rx1, ry2, rx2 = refined_rois[id]
+            ry1, rx1, ry2, rx2 = refined_rois[roi_id]
             p = patches.Rectangle((rx1, ry1), rx2 - rx1, ry2 - ry1, linewidth=2,
                                   edgecolor=color, facecolor='none')
             ax.add_patch(p)
@@ -253,7 +257,7 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
                     color='w', size=11, backgroundcolor="none")
 
             # Mask
-            m = utils.unmold_mask(mask[id], rois[id]
+            m = utils.unmold_mask(mask[roi_id], rois[roi_id]
                                   [:4].astype(np.int32), image.shape)
             masked_image = apply_mask(masked_image, m, color)
 
@@ -263,7 +267,8 @@ def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10)
     print("Positive ROIs: ", class_ids[class_ids > 0].shape[0])
     print("Negative ROIs: ", class_ids[class_ids == 0].shape[0])
     print("Positive Ratio: {:.2f}".format(
-        class_ids[class_ids > 0].shape[0] / class_ids.shape[0]))
+        class_ids[class_ids > 0].shape[0] / class_ids.shape[0])
+    )
 
 
 # TODO: Replace with matplotlib equivalent?
@@ -276,6 +281,7 @@ def draw_box(image, box, color):
     image[y2:y2 + 2, x1:x2] = color
     image[y1:y2, x1:x1 + 2] = color
     image[y1:y2, x2:x2 + 2] = color
+
     return image
 
 
@@ -302,16 +308,16 @@ def display_top_masks(image, mask, class_ids, class_names, limit=4):
     display_images(to_display, titles=titles, cols=limit + 1, cmap="Blues_r")
 
 
-def plot_precision_recall(AP, precisions, recalls):
+def plot_precision_recall(avg_precision, precisions, recalls):
     """Draw the precision-recall curve.
 
-    AP: Average precision at IoU >= 0.5
+    avg_precision: Average precision at IoU >= 0.5
     precisions: list of precision values
     recalls: list of recall values
     """
     # Plot the Precision-Recall curve
     _, ax = plt.subplots(1)
-    ax.set_title("Precision-Recall Curve. AP@50 = {:.3f}".format(AP))
+    ax.set_title("Precision-Recall Curve. AP@50 = {:.3f}".format(avg_precision))
     ax.set_ylim(0, 1.1)
     ax.set_xlim(0, 1.1)
     _ = ax.plot(recalls, precisions)
@@ -331,12 +337,12 @@ def plot_overlaps(gt_class_ids, pred_class_ids, pred_scores,
     pred_class_ids = pred_class_ids[pred_class_ids != 0]
 
     plt.figure(figsize=(12, 10))
-    plt.imshow(overlaps, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.imshow(overlaps, interpolation='nearest', cmap=plt.cm.get_cmap("Blues"))
     plt.yticks(np.arange(len(pred_class_ids)),
-               ["{} ({:.2f})".format(class_names[int(id)], pred_scores[i])
-                for i, id in enumerate(pred_class_ids)])
+               ["{} ({:.2f})".format(class_names[int(pred_class_id)], pred_scores[i])
+                for i, pred_class_id in enumerate(pred_class_ids)])
     plt.xticks(np.arange(len(gt_class_ids)),
-               [class_names[int(id)] for id in gt_class_ids], rotation=90)
+               [class_names[int(gt_class_id)] for gt_class_id in gt_class_ids], rotation=90)
 
     thresh = overlaps.max() / 2.
     for i, j in itertools.product(range(overlaps.shape[0]),
@@ -374,14 +380,14 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     """
     # Number of boxes
     assert boxes is not None or refined_boxes is not None
-    N = boxes.shape[0] if boxes is not None else refined_boxes.shape[0]
+    n = boxes.shape[0] if boxes is not None else refined_boxes.shape[0]
 
     # Matplotlib Axis
     if not ax:
         _, ax = plt.subplots(1, figsize=(12, 12))
 
     # Generate random colors
-    colors = random_colors(N)
+    colors = random_colors(n)
 
     # Show area outside image boundaries.
     margin = image.shape[0] // 10
@@ -392,7 +398,7 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
     ax.set_title(title)
 
     masked_image = image.astype(np.uint32).copy()
-    for i in range(N):
+    for i in range(n):
         # Box visibility
         visibility = visibilities[i] if visibilities is not None else 1
         if visibility == 0:
@@ -450,10 +456,10 @@ def draw_boxes(image, boxes=None, refined_boxes=None,
                 (mask.shape[0] + 2, mask.shape[1] + 2), dtype=np.uint8)
             padded_mask[1:-1, 1:-1] = mask
             contours = find_contours(padded_mask, 0.5)
-            for verts in contours:
+            for vertices in contours:
                 # Subtract the padding and flip (y, x) to (x, y)
-                verts = np.fliplr(verts) - 1
-                p = Polygon(verts, facecolor="none", edgecolor=color)
+                vertices = np.fliplr(vertices) - 1
+                p = Polygon(vertices, facecolor="none", edgecolor=color)
                 ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
 
@@ -478,14 +484,14 @@ def display_weight_stats(model):
     """
     layers = model.get_trainable_layers()
     table = [["WEIGHT NAME", "SHAPE", "MIN", "MAX", "STD"]]
-    for l in layers:
-        weight_values = l.get_weights()  # list of Numpy arrays
-        weight_tensors = l.weights  # list of TF tensors
+    for layer in layers:
+        weight_values = layer.get_weights()  # list of Numpy arrays
+        weight_tensors = layer.weights  # list of TF tensors
         for i, w in enumerate(weight_values):
             weight_name = weight_tensors[i].name
             # Detect problematic layers. Exclude biases of conv layers.
             alert = ""
-            if w.min() == w.max() and not (l.__class__.__name__ == "Conv2D" and i == 1):
+            if w.min() == w.max() and not (layer.__class__.__name__ == "Conv2D" and i == 1):
                 alert += "<span style='color:red'>*** dead?</span>"
             if np.abs(w.min()) > 1000 or np.abs(w.max()) > 1000:
                 alert += "<span style='color:red'>*** Overflow?</span>"
