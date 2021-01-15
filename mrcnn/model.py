@@ -597,6 +597,8 @@ class MaskRCNN(object):
         self.mode = mode
         self.config = config
         self.model_dir = model_dir
+        self.epoch = None
+        self.log_dir = None
         self.set_log_dir()
         self.keras_model = self.build()
 
