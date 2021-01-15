@@ -761,7 +761,8 @@ class MaskRCNN(object):
             )
 
             mrcnn_mask = build_fpn_mask_graph(
-                rois, mrcnn_feature_maps,
+                rois,
+                mrcnn_feature_maps,
                 input_image_meta,
                 self.config.MASK_POOL_SIZE,
                 self.config.NUM_CLASSES,
@@ -1047,7 +1048,6 @@ class MaskRCNN(object):
             self,
             train_dataset,
             val_dataset,
-            epochs,
             train_layers,
             augmentation=None,
             custom_callbacks=None
@@ -1139,7 +1139,7 @@ class MaskRCNN(object):
         self.keras_model.fit(
             train_generator,
             initial_epoch=self.epoch,
-            epochs=epochs,
+            epochs=self.config.EPOCH_COUNT,
             steps_per_epoch=self.config.STEPS_PER_EPOCH,
             callbacks=callbacks,
             validation_data=val_generator,
@@ -1148,7 +1148,7 @@ class MaskRCNN(object):
             workers=workers,
             use_multiprocessing=False  # Dec 2020: Changed to False as it always seemed to cause problems
         )
-        self.epoch = max(self.epoch, epochs)
+        self.epoch = max(self.epoch, self.config.EPOCH_COUNT)
 
     def mold_inputs(self, images):
         """
