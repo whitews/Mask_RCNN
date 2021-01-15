@@ -51,25 +51,6 @@ def log(text, array=None):
     print(text)
 
 
-class BatchNorm(keras_layers.BatchNormalization):
-    """
-    Extends the Keras BatchNormalization class to allow a central place
-    to make changes if needed.
-
-    Batch normalization has a negative effect on training if batches are small
-    so this layer is often frozen (via setting in Config class) and functions
-    as linear layer.
-    """
-    def call(self, inputs, training=None):
-        """
-        Note about training values:
-            None: Train BN layers. This is the normal mode
-            False: Freeze BN layers. Good when batch size is small
-            True: (don't use). Set layer in training mode even when making inferences
-        """
-        return super(self.__class__, self).call(inputs, training=training)
-
-
 def compute_backbone_shapes(config, image_shape):
     """
     Computes the width and height of each stage of the backbone network.
@@ -114,17 +95,17 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
 
     x = keras_layers.Conv2D(nb_filter1, (1, 1), name=conv_name_base + '2a',
                             use_bias=use_bias)(input_tensor)
-    x = BatchNorm(name=bn_name_base + '2a')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2a')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                             name=conv_name_base + '2b', use_bias=use_bias)(x)
-    x = BatchNorm(name=bn_name_base + '2b')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2b')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',
                             use_bias=use_bias)(x)
-    x = BatchNorm(name=bn_name_base + '2c')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2c')(x, training=train_bn)
 
     x = keras_layers.Add()([x, input_tensor])
     x = keras_layers.Activation('relu', name='res' + str(stage) + block + '_out')(x)
@@ -152,12 +133,12 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
 
     x = keras_layers.Conv2D(nb_filter1, (1, 1), strides=strides,
                             name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
-    x = BatchNorm(name=bn_name_base + '2a')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2a')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                             name=conv_name_base + '2b', use_bias=use_bias)(x)
-    x = BatchNorm(name=bn_name_base + '2b')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2b')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.Conv2D(
@@ -166,11 +147,11 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
         name=conv_name_base + '2c',
         use_bias=use_bias
     )(x)
-    x = BatchNorm(name=bn_name_base + '2c')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name=bn_name_base + '2c')(x, training=train_bn)
 
     shortcut = keras_layers.Conv2D(nb_filter3, (1, 1), strides=strides,
                                    name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
-    shortcut = BatchNorm(name=bn_name_base + '1')(shortcut, training=train_bn)
+    shortcut = keras_layers.BatchNormalization(name=bn_name_base + '1')(shortcut, training=train_bn)
 
     x = keras_layers.Add()([x, shortcut])
     x = keras_layers.Activation('relu', name='res' + str(stage) + block + '_out')(x)
@@ -188,7 +169,7 @@ def resnet_graph(input_image, architecture, stage5=False, train_bn=True):
     # Stage 1
     x = keras_layers.ZeroPadding2D((3, 3))(input_image)
     x = keras_layers.Conv2D(64, (7, 7), strides=(2, 2), name='conv1', use_bias=True)(x)
-    x = BatchNorm(name='bn_conv1')(x, training=train_bn)
+    x = keras_layers.BatchNormalization(name='bn_conv1')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
     c1 = x = keras_layers.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
     # Stage 2
@@ -987,11 +968,17 @@ def fpn_classifier_graph(rois, feature_maps, image_meta,
     # Two 1024 FC layers (implemented with Conv2D for consistency)
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(fc_layers_size, (pool_size, pool_size), padding="valid"),
                                      name="mrcnn_class_conv1")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(), name='mrcnn_class_bn1')(x, training=train_bn)
+    x = keras_layers.TimeDistributed(
+        keras_layers.BatchNormalization(),
+        name='mrcnn_class_bn1'
+    )(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(fc_layers_size, (1, 1)),
                                      name="mrcnn_class_conv2")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(), name='mrcnn_class_bn2')(x, training=train_bn)
+    x = keras_layers.TimeDistributed(
+        keras_layers.BatchNormalization(),
+        name='mrcnn_class_bn2'
+    )(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     shared = keras_layers.Lambda(lambda x2: keras_backend.squeeze(keras_backend.squeeze(x2, 3), 2),
@@ -1041,25 +1028,25 @@ def build_fpn_mask_graph(rois, feature_maps, image_meta,
     # Conv layers
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(256, (3, 3), padding="same"),
                                      name="mrcnn_mask_conv1")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(),
+    x = keras_layers.TimeDistributed(keras_layers.BatchNormalization(),
                                      name='mrcnn_mask_bn1')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(256, (3, 3), padding="same"),
                                      name="mrcnn_mask_conv2")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(),
+    x = keras_layers.TimeDistributed(keras_layers.BatchNormalization(),
                                      name='mrcnn_mask_bn2')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(256, (3, 3), padding="same"),
                                      name="mrcnn_mask_conv3")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(),
+    x = keras_layers.TimeDistributed(keras_layers.BatchNormalization(),
                                      name='mrcnn_mask_bn3')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
     x = keras_layers.TimeDistributed(keras_layers.Conv2D(256, (3, 3), padding="same"),
                                      name="mrcnn_mask_conv4")(x)
-    x = keras_layers.TimeDistributed(BatchNorm(),
+    x = keras_layers.TimeDistributed(keras_layers.BatchNormalization(),
                                      name='mrcnn_mask_bn4')(x, training=train_bn)
     x = keras_layers.Activation('relu')(x)
 
