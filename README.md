@@ -1,4 +1,7 @@
-# Mask R-CNN for Object Detection and Segmentation
+# Mask R-CNN fork compatible with TensorFlow 2+
+
+**This is a fork of the official Mask R-CNN project, updated for compatibility with an up-to-date dependency stack, 
+including TensorFlow 2.**
 
 This is an implementation of [Mask R-CNN](https://arxiv.org/abs/1703.06870) on Python 3, Keras, and TensorFlow. The model generates bounding boxes and segmentation masks for each instance of an object in the image. It's based on Feature Pyramid Network (FPN) and a ResNet101 backbone.
 
