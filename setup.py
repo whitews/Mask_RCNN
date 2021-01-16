@@ -32,7 +32,7 @@ except Exception:
     install_reqs = []
 
 setup(
-    name='mask-rcnn',
+    name='mrcnn',
     version='2.1',
     url='https://github.com/matterport/Mask_RCNN',
     author='Matterport',
